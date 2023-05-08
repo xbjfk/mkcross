@@ -23,29 +23,29 @@ run `mkcross --target=<triple>`
  - Baremetal support is currently in beta and might not even work!
 
 # What's next?
- [ ] Windows target support
-  [x] MingW
-  [ ] Proprietary (Visual Studio)
- [ ] FreeBSD
-  [ ] Prebuilt (base.tar)
-  [ ] From sources (src.tar)
-  [ ] Mix (one of above + upstream LLVM)
- [ ] MacOS target support
-  [ ] Some free software way
-  [ ] Proprietary (XCode.xip)
- [ ] Linux
-  [x] musl
-  [ ] uclibc
-  [ ] glibc (cannot yet be built with clang)
- [ ] Bare metal
- [ ] Common libraries - zlib, curl, openssl
- [ ] More architectures in compiler RT
-  [ ] Upstream to LLVM
- [ ] Parallel download and source extraction
- [ ] Parallel target generation
-  [ ] Will require copying autoconf/symlinking source files.
- [ ] Query github api for source tarball size when download.
- [ ] Better config and yaml config for target
+ - [ ] Windows target support
+   - [x] MingW
+   - [ ] Proprietary (Visual Studio)
+ - [ ] FreeBSD
+   - [ ] Prebuilt (base.tar)
+   - [ ] From sources (src.tar)
+   - [ ] Mix (one of above + upstream LLVM)
+ - [ ] MacOS target support
+   - [ ] Some free software way
+   - [ ] Proprietary (XCode.xip)
+ - [ ] Linux
+   - [x] musl
+   - [ ] uclibc
+   - [ ] glibc (cannot yet be built with clang)
+ - [ ] Bare metal
+ - [ ] Common libraries - zlib, curl, openssl
+ - [ ] More architectures in compiler RT
+   - [ ] Upstream to LLVM
+ - [ ] Parallel download and source extraction
+ - [ ] Parallel target generation
+   - [ ] Will require copying autoconf/symlinking source files.
+ - [ ] Query github api for source tarball size when download.
+ - [ ] Better config and yaml config for target
 
 # Notes
  - mingw targets are not abi compatible with gcc mingw! They are however compatible with MSVC, including C++, thanks to the efforts of Google.
