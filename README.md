@@ -46,6 +46,7 @@ run `mkcross --target=<triple>`
    - [ ] Will require copying autoconf/symlinking source files.
  - [ ] Query github api for source tarball size when download.
  - [ ] Better config and yaml config for target
+ - [ ] Github actions to compile common targets
 
 # Notes
  - mingw targets are not abi compatible with gcc mingw! They are however compatible with MSVC, including C++, thanks to the efforts of Google.
