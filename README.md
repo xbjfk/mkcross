@@ -1,4 +1,9 @@
-# How to use?
+# mkcross
+mkcross is a super fast python toolkit to make linux and windows (mingw) toolchains in seconds
+## Speedtest (12900kf, aarch64-linux-musl)
+mkcross: 30s (90s with downloads)
+
+# How to use
 ## Clang
 Simply run clang like this:
 ```
@@ -52,6 +57,6 @@ run `mkcross --target=<triple>`
 # Notes
  - mingw targets are not abi compatible with gcc mingw! They are however compatible with MSVC, including C++, thanks to the efforts of Google.
 
-# FAQ
+# Troubleshooting tips
 ## I get errors when compiling c++ statically!
 You need to link with libc++abi: `-lc++abi`
