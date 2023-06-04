@@ -1,7 +1,9 @@
 # mkcross
 mkcross is a super fast python toolkit to make linux and windows (mingw) toolchains in seconds
-## Speedtest (12900kf, aarch64-linux-musl)
+## Benchmark (12900kf, aarch64-linux-musl)
 mkcross: 30s (90s with downloads)
+musl-cross-make: 176s (197s with downloads)
+<!-- TODO: full blown comparision chart -->
 
 # How to use
 ## Clang
