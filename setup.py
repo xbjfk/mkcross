@@ -37,7 +37,7 @@ setup(
 	description="easily cross compile without compiling GCC",
 	long_description_content_type="text/markdown",
 	long_description=long_description,
-	packages=['mkcross'],
+	packages=['mkcross', 'mkcross.targets', 'mkcross.helper'],
 	ext_modules = [Extension(name="llvmtarget", sources=["mkcross/llvmtarget.cpp"], **extension_args)],
 	keywords='clang llvm cross-compile',
 	install_requires=[
@@ -47,7 +47,7 @@ setup(
 	],
 	entry_points={
 		'console_scripts': [
-			'dlwinesd=dlwinesd:main',
+			'mkcross=mkcross.cli:main',
 		],
 	}
 

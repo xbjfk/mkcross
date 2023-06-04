@@ -1,6 +1,6 @@
 import sys
 import llvmtarget
-from targets import UnixTarget
+from mkcross.targets import UnixTarget
 
 args = sys.argv[1:]
 
@@ -30,18 +30,25 @@ def target_for_cli(arg: str):
 def usage():
 	print("Usage: " + sys.argv[0] + " [global arguments] target [target arguments] [target 2 [target 2 arguments] ... ]")
 
-targets = []
+def main():
+	targets = []
 
-for arg in args:
-	if not arg.startswith("--") or arg.count('=') < 1:
-		raise ValueError("Only arguments in the form of --foo=bar are supported.")
+	for arg in args:
+		if not arg.startswith("--") or arg.count('=') < 1:
+			raise ValueError("Only arguments in the form of --foo=bar are supported.")
 
-	argname, argvalue = arg.split('=', 1)
-	if len(argvalue) == 0:
-		raise ValueError("Target not specified!")
-	if argname == "--target":
-		targets += [target_for_cli(argvalue)]
+		argname, argvalue = arg.split('=', 1)
+		if len(argvalue) == 0:
+			raise ValueError("Target not specified!")
+		if argname == "--target":
+			targets += [target_for_cli(argvalue)]
 
-for target in targets:
-	target.make()
+	if len(targets) == 0:
+		raise ValueError("No targets specified!")
 
+	for target in targets:
+		target.make()
+
+
+if __name__ == "__main__":
+	main()

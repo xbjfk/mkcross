@@ -6,17 +6,17 @@ import subprocess
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Dict, List
-from helper.flags import join_map_flags
+from mkcross.helper.flags import join_map_flags
 
-import helper.latest_version as latest_ver
+import mkcross.helper.latest_version as latest_ver
 
 import libarchive
 import requests
 from tqdm import tqdm
 
-import cfg
+from mkcross import cfg
 import llvmtarget
-from targets.targetmeta import TargetMeta
+from mkcross.targets.targetmeta import TargetMeta
 
 
 # TODO verify/skip download

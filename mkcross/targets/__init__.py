@@ -2,9 +2,9 @@ import tempfile
 from shutil import which
 from typing import List
 
-import helper.latest_version
-from packages import CompilerRT, LibCXX, Libunwind, Linux, Musl, MingwHeaders, Mingw, CppWinRT, ClangResourceHeaders, PicoLibc
-from targets.targetmeta import TargetMeta
+from mkcross.helper import latest_version
+from mkcross.packages import CompilerRT, LibCXX, Libunwind, Linux, Musl, MingwHeaders, Mingw, CppWinRT, ClangResourceHeaders, PicoLibc
+from mkcross.targets.targetmeta import TargetMeta
 
 
 class UnixTarget(TargetMeta):
@@ -186,7 +186,7 @@ class UnixTarget(TargetMeta):
 			pkg.install()
 
 
-		ver = self.config.get("llvm_ver") or helper.latest_version.llvm()
+		ver = self.config.get("llvm_ver") or latest_version.llvm()
 
 		pkg = CompilerRT(self, ver)
 		pkg.download()

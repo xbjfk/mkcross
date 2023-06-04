@@ -1,9 +1,9 @@
-import cfg
+from mkcross import cfg
 from abc import ABC, abstractmethod
 from typing import List, Dict
 from pathlib import Path
 from shutil import which
-from helper.flags import join_map_flags
+from mkcross.helper.flags import join_map_flags
 import os
 import tempfile
 
