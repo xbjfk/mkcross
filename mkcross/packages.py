@@ -162,7 +162,9 @@ class SourcePackage(PackageMeta):
 	def make(self, *targets, dir: Path = None, prog: str = "make", check = True):
 		if dir is None:
 			dir = self.builddir
-		subprocess.run([prog] + cfg.makeopts + ["-C", str(dir), *targets], check=check),
+		cmd = [prog] + cfg.makeopts + ["-C", str(dir), *targets]
+		print("[I] Running", shlex.join(cmd))
+		subprocess.run(cmd, check=check),
 
 
 class Linux(SourcePackage):
@@ -223,6 +225,43 @@ class Linux(SourcePackage):
 		#will only be not headers only if target specifies build kernel
 
 
+class WasixLibc(SourcePackage):
+	def __init__(self, target: TargetMeta):
+		files = {
+			"wasix-libc.tar.gz": PackageFile("https://github.com/wasix-org/wasix-libc/archive/main.tar.gz")
+		}
+		super().__init__(target, files, "wasix-libc", "main")
+
+	def configure(self):
+		copy_tree(str(self.srcdir), str(self.builddir))
+
+		# Make sure we use our own libclang_rt:
+		(self.builddir / "libclang_rt.builtins-wasm32.a").unlink(missing_ok=True)
+
+	def build(self):
+		# TODO: use a dict or KWargs for = arguments
+
+		cflags = self.target.cflags.copy()
+		cflags.remove("-D_WASI_EMULATED_MMAN")
+		cflags.remove("-D_WASI_EMULATED_PROCESS_CLOCKS")
+
+		self.make(
+			f"CC={shutil.which('clang')}",
+			f"AR={shutil.which('llvm-ar')}",
+			f"NM={shutil.which('llvm-nm')}",
+			"EXTRA_CFLAGS=" + join_map_flags(cflags, self.target.sysroot),
+			f"SYSROOT={self.target.sysroot.resolve()}",
+			f"TARGET_ARCH={self.target.llvmtarget.arch}",
+			"TARGET_TRIPLE=wasm32-wasi",
+			"THREAD_MODEL=posix",
+			"startup_files", "libc" # Finish target checks, symbols, which can break due to different -O, lack of NDEBUG, etc
+		)
+
+	def install(self):
+		# WasixLibc compiled directly to sysroot
+		pass
+
+
 class Musl(SourcePackage):
 	headers_only: bool
 
@@ -241,12 +280,17 @@ class Musl(SourcePackage):
 	def configure(self):
 		# TODO default buildpath and srcpath in thing
 		# TODO env to target or sourcepackage
+		CC = [shutil.which("clang"), "-target", self.target.llvmtarget.triplestr, "--sysroot", str(self.target.sysroot.resolve()), "-resource-dir", str(self.target.sysroot.resolve() / "lib/clang")]
+		LIBCC = subprocess.check_output(CC + ["-print-libgcc-file-name"])
 		env = {
 			# Put target and stuff in CC because try_ldflag doesn't respect CFLAGS and will try add lgcc_eh because it exists on the host
-			"CC": shutil.which("clang") + " -target " + self.target.llvmtarget.triplestr + " --sysroot " + str(self.target.sysroot.resolve()) + " -resource-dir " + str(self.target.sysroot.resolve() / "lib/clang"),
+			"CC": shlex.join(CC),
+			"LIBCC": LIBCC,
 			"AR": shutil.which("llvm-ar"),
 			"RANLIB": shutil.which("llvm-ranlib"),
-			"CFLAGS": join_map_flags(self.target.cflags, self.target.sysroot)
+			"CFLAGS": join_map_flags(self.target.cflags, self.target.sysroot),
+			# fix for LTO: https://www.openwall.com/lists/musl/2021/01/29/4
+			"LDFLAGS": join_map_flags(self.target.ldflags, self.target.sysroot) + " -u __dls2",
 		}
 		subprocess.run([str((self.srcdir / "configure").resolve()), "--disable-gcc-wrapper", "--target=" + self.target.llvmtarget.triplestr, "--prefix=/"], env=env, cwd=self.builddir, check=True)
 
@@ -260,6 +304,36 @@ class Musl(SourcePackage):
 		self.make("DESTDIR=" + str(self.target.sysroot.resolve()), install_target)
 
 		#will only be not headers only if target specifies build kernel
+
+
+class MesonPackage(SourcePackage):
+	def __init__(self, target: TargetMeta, files: Dict[str, PackageFile], name: str, ver: str, meson_opts={}, srcdir: Path = None):
+		super().__init__(target, files, name, ver, srcdir)
+		self.meson_opts = meson_opts
+
+	def configure(self):
+		user_args = [f"-D{k}={v}" for k, v in self.meson_opts.items()]
+
+		args = [
+			"meson",
+			"setup",
+			"--wipe",
+			"-Dprefix=/",
+			"--cross-file",
+			str(self.target.cross_file_meson),
+			str(self.builddir),
+			str(self.srcdir),
+		]
+
+		args += user_args
+		print("[I] Running", shlex.join(args))
+		subprocess.run(args, check=True)
+
+	def build(self):
+		subprocess.run(["ninja", "-C", str(self.builddir)], check=True)
+
+	def install(self):
+		subprocess.run(["ninja", "-C", str(self.builddir), "install"], env={"DESTDIR": str(self.target.sysroot.resolve())}, check=True),
 
 
 class CMakePackage(SourcePackage):
@@ -413,25 +487,21 @@ class Mingw(AutotoolsPackage):
 		#if arch == arch64 or supports_multilib:
 		#	copy_tree(self.builddir / lib64, self.target.sysroot / (arch64.name + "-w64-mingw32") / "lib")
 
-class PicoLibc(CMakePackage):
+class PicoLibc(MesonPackage):
 	@staticmethod
 	def get_latest_version():
 		return latest_ver.github("picolibc/picolibc")
 
 	def __init__(self, target: TargetMeta, ver: str):
 		files = {
-			f"cppwinrt-{ver}.tar.gz": PackageFile(f"https://github.com/picolibc/picolibc/releases/download/{ver}/picolibc-{ver}.tar.xz"),
+			f"picolibc-{ver}.tar.gz": PackageFile(f"https://github.com/picolibc/picolibc/releases/download/{ver}/picolibc-{ver}.tar.xz"),
 		}
 		opts = {
-			"CMAKE_TRY_COMPILE_TARGET_TYPE": "STATIC_LIBRARY",
+			"newlib-locale-info": "true",
+			"newlib-locale-info-extended": "true"
 		}
 		super().__init__(target, files, "picolibc", ver, opts)
 
-	def install(self):
-		super().install()
-		# Create dummy libm
-		# See: https://github.com/picolibc/picolibc/issues/462
-		subprocess.run(["llvm-ar", "rcs", str(self.target.sysroot / "lib/libm.a")])
 
 class CppWinRT(CMakePackage):
 	def __init__(self, target: TargetMeta, ver: str):
@@ -496,11 +566,22 @@ class ClangResourceHeaders(PackageMeta):
 
 
 class Libunwind(CMakePackage):
+	# TODO: patch to make work with wasix
 	def __init__(self, target: TargetMeta, ver: str):
 		files = {
 			f"llvmorg-{ver}.tar.gz": PackageFile(f"https://github.com/llvm/llvm-project/archive/refs/tags/llvmorg-{ver}.tar.gz"),
 		}
 		srcdir = Path(cfg.srcpath / ("llvm-project-llvmorg-" + ver) / "runtimes")
+		cxxflags = target.cxxflags.copy()
+		
+		if target.llvmtarget.is_baremetal:
+			# alloca.h is included with stdlib.h only when __STRICT_ANSI__ is unset...
+			# also not including stdlib.h makes clang complain about missing size_t
+			cxxflags += ["-include stdlib.h", "-include alloca.h"]
+		elif target.llvmtarget.is_wasm:
+			cxxflags += ["-D_LIBUNWIND_USE_DLADDR=0"]
+
+			
 		opts = {
 			"LLVM_ENABLE_RUNTIMES": "libunwind",
 			"LIBUNWIND_INSTALL_HEADERS": "ON",
@@ -512,8 +593,7 @@ class Libunwind(CMakePackage):
 			# This makes it too optimistic, and it tries to link lgcc and lgcc_s.
 			#"CMAKE_TRY_COMPILE_TARGET_TYPE": "STATIC_LIBRARY",
 
-			# alloca.h is included with stdlib.h only when __STRICT_ANSI__ is unset...
-			"CMAKE_CXX_FLAGS": join_map_flags(target.cxxflags, target.sysroot) + ' -include alloca.h',
+			"CMAKE_CXX_FLAGS": join_map_flags(cxxflags, target.sysroot),
 		}
 		if target.llvmtarget.is_baremetal:
 			# LLVM uses this to test if linker script is available: 
@@ -523,8 +603,11 @@ class Libunwind(CMakePackage):
 			opts["LIBUNWIND_IS_BAREMETAL"] = "1"
 			opts["LIBUNWIND_ENABLE_THREADS"] = "0" # no threads
 
-		if target.llvmtarget.is_mingw or target.llvmtarget.is_baremetal:
+		if target.llvmtarget.is_mingw or target.llvmtarget.is_baremetal or target.llvmtarget.is_wasm:
 			opts["LIBUNWIND_ENABLE_SHARED"] = "OFF"
+
+		if target.llvmtarget.is_wasm:
+			_LIBUNWIND_USE_DLADDR
 
 		super().__init__(target, files, "llvm-libunwind", ver, opts, srcdir)
 
@@ -536,6 +619,8 @@ class LibCXX(CMakePackage):
 			f"llvmorg-{ver}.tar.gz": PackageFile(f"https://github.com/llvm/llvm-project/archive/refs/tags/llvmorg-{ver}.tar.gz"),
 		}
 		srcdir = Path(cfg.srcpath / ("llvm-project-llvmorg-" + ver) / "runtimes")
+		cxxflags = target.cxxflags.copy()
+
 		opts = {
 			"LLVM_ENABLE_RUNTIMES": "libcxxabi;libcxx",
 			"LLVM_INCLUDE_TESTS": "OFF",
@@ -544,6 +629,9 @@ class LibCXX(CMakePackage):
 			"CMAKE_EXE_LINKER_FLAGS": join_map_flags(target.ldflags, target.sysroot) + ' -nostdlib++',
 			# This makes it too optimistic, and it tries to link lgcc and lgcc_s.
 			#"CMAKE_TRY_COMPILE_TARGET_TYPE": "STATIC_LIBRARY",
+			# TODO: make this a target variable
+			"CMAKE_INSTALL_INCLUDEDIR": "/usr/include", # TODO: wasm, mingw and baremetal dont support /usr/include
+
 		}
 		if target.llvmtarget.is_musl:
 			opts["LIBCXX_HAS_MUSL_LIBC"] = "ON"
@@ -553,15 +641,21 @@ class LibCXX(CMakePackage):
 			# https://github.com/llvm/llvm-project/blob/main/llvm/cmake/modules/HandleLLVMOptions.cmake#L135
 			opts["UNIX"] = "1"
 
-			# TODO: add option to enable locale in picolibc
 			opts["LIBCXXABI_ENABLE_THREADS"] = "0"
 
-			opts["LIBCXX_ENABLE_LOCALIZATION"] = "0"
 			opts["LIBCXX_ENABLE_MONOTONIC_CLOCK"] = "0"
 			opts["LIBCXX_ENABLE_THREADS"] = "0"
 			opts["LIBCXX_ENABLE_FILESYSTEM"] = "0"
 
-		if target.llvmtarget.is_mingw or target.llvmtarget.is_baremetal:
+			# things like local_t and toascii need this.
+			cxxflags += ["-D_DEFAULT_SOURCE=1"]
+			# strtoll_l, strtoull_l, strtof_l, strtod_l, strtold_l needs this.
+			cxxflags += ["-D_GNU_SOURCE=1"]
+
+		opts["CMAKE_CXX_FLAGS"] = join_map_flags(cxxflags, target.sysroot)
+
+
+		if target.llvmtarget.is_mingw or target.llvmtarget.is_baremetal or target.llvmtarget.is_wasm:
 			# https://github.com/llvm/llvm-project/blob/0bc0edb847a0cc473a8b005c4725948de3306a20/libcxx/cmake/caches/MinGW.cmake
 			# TODO: define __USE_MINGW_ANSI_STDIO (see above link)
 			opts["LIBCXX_ENABLE_SHARED"] = "OFF"
@@ -569,6 +663,17 @@ class LibCXX(CMakePackage):
 			opts["LIBCXXABI_ENABLE_SHARED"] = "OFF"
 			opts["LIBCXXABI_ENABLE_STATIC_UNWINDER"] = "ON"
 			opts["LIBCXXABI_STATICALLY_LINK_UNWINDER_IN_STATIC_LIBRARY"] = "ON"
+
+		if target.llvmtarget.is_wasm:
+			opts["LIBCXX_ENABLE_EXCEPTIONS"] = "OFF"
+			opts["LIBCXXABI_ENABLE_EXCEPTIONS"] = "OFF"
+			# no statvfs yet :(
+			opts["LIBCXX_ENABLE_FILESYSTEM"] = "OFF"
+
+			if target.llvmtarget.is_wasi:
+				# This is the only lib path clang searches.
+				opts["LIBCXX_INSTALL_LIBRARY_DIR"] = f"/lib/{target.llvmtarget.arch}-wasi"
+				opts["LIBCXXABI_INSTALL_LIBRARY_DIR"] = f"/lib/{target.llvmtarget.arch}-wasi"
 
 
 		super().__init__(target, files, "llvm-libcxx", ver, opts, srcdir)

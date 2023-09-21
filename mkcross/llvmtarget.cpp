@@ -37,7 +37,7 @@ struct LLVMTarget {
 		}
 
 		// HACK: technically, none should be as part of OS
-		if (self->t.getOS() == llvm::Triple::UnknownOS && self->t.getVendorName() != "none") {
+		if (self->t.getOS() == llvm::Triple::UnknownOS && self->t.getOSName() != "none") {
 			PyErr_SetString(PyExc_ValueError, "Unknown OS!");
 		    return -1;
 		}
@@ -78,6 +78,7 @@ consteval PyGetSetDef llvm_getset(std::string_view name, T wrapped) {
 }
 */
 
+// TODO: make this a define or consteval
 struct PyGetSetDef LLVMTarget::getsets[] = {
 	{"arch", [](PyObject* self, void*) { return PyObject_From(llvm::Triple::getArchTypeName(reinterpret_cast<LLVMTarget*>(self)->t.getArch()).str().c_str()); }},
 	{"os", [](PyObject* self, void*) { return PyObject_From(reinterpret_cast<LLVMTarget*>(self)->t.getOSName().str().c_str()); }},
@@ -88,7 +89,7 @@ struct PyGetSetDef LLVMTarget::getsets[] = {
 
 	{"is_64bit", [](PyObject* self, void*) { return PyObject_From(reinterpret_cast<LLVMTarget*>(self)->t.isArch64Bit()); }},
 
-	{"is_baremetal", [](PyObject* self, void*) { return PyObject_From(reinterpret_cast<LLVMTarget*>(self)->t.getVendorName() == "none"); }},
+	{"is_baremetal", [](PyObject* self, void*) { return PyObject_From(reinterpret_cast<LLVMTarget*>(self)->t.getOSName() == "none"); }},
 
 	{"is_aarch64", [](PyObject* self, void*) { return PyObject_From(reinterpret_cast<LLVMTarget*>(self)->t.isAArch64()); }},
 	{"is_arm", [](PyObject* self, void*) { return PyObject_From(reinterpret_cast<LLVMTarget*>(self)->t.isARM()); }},
@@ -112,6 +113,10 @@ struct PyGetSetDef LLVMTarget::getsets[] = {
 	{"is_ios", [](PyObject* self, void*) { return PyObject_From(reinterpret_cast<LLVMTarget*>(self)->t.isiOS()); }},
 	{"is_hurd", [](PyObject* self, void*) { return PyObject_From(reinterpret_cast<LLVMTarget*>(self)->t.isOSHurd()); }},
 	{"is_solaris", [](PyObject* self, void*) { return PyObject_From(reinterpret_cast<LLVMTarget*>(self)->t.isOSSolaris()); }},
+	{"is_wasi", [](PyObject* self, void*) { return PyObject_From(reinterpret_cast<LLVMTarget*>(self)->t.isOSWASI()); }},
+	{"is_wasm", [](PyObject* self, void*) { return PyObject_From(reinterpret_cast<LLVMTarget*>(self)->t.isWasm()); }},
+	{"is_little_endian", [](PyObject* self, void*) { return PyObject_From(reinterpret_cast<LLVMTarget*>(self)->t.isLittleEndian()); }},
+	// TODO: meson_cpu_family
 	{nullptr},
 };
 

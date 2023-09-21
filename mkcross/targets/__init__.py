@@ -1,9 +1,12 @@
+import warnings
 import tempfile
 from shutil import which
 from typing import List
 
+import shlex
+
 from mkcross.helper import latest_version
-from mkcross.packages import CompilerRT, LibCXX, Libunwind, Linux, Musl, MingwHeaders, Mingw, CppWinRT, ClangResourceHeaders, PicoLibc
+from mkcross.packages import CompilerRT, LibCXX, Libunwind, Linux, Musl, MingwHeaders, Mingw, CppWinRT, ClangResourceHeaders, PicoLibc, WasixLibc
 from mkcross.targets.targetmeta import TargetMeta
 
 
@@ -34,6 +37,7 @@ class UnixTarget(TargetMeta):
 		# "dragonfly",
 		# "freebsd",
 		"linux",
+		"wasi",
 		# "netbsd",
 		# "openbsd",
 		# "haiku",
@@ -44,7 +48,7 @@ class UnixTarget(TargetMeta):
 		# "hurd"
 
 		"windows", #MingW
-		"unknown" # Bare metal
+		"none",
 	}
 
 	# TODO:FREEBSD brebuilt (base.txz) and source (src.txz)
@@ -74,8 +78,18 @@ class UnixTarget(TargetMeta):
 				raise ValueError(f"Architecture {self.llvmtarget.arch} not supported in Windows/Mingw!")
 
 
-		# TODO: document this better: os is unknown and vendor is none
 		elif self.llvmtarget.is_baremetal:
+			if self.llvmtarget.environment == "unknown":
+				raise ValueError("Unknown environment! You probably want something like ARCH-unknown-none-elf")
+
+			# You need to specify an oslib to link
+			warnings.warn("You are using a baremetal target. mkcross' bare metal uses picolibc. When linking with picolibc, you need to override the default variables for flash location and such, with either a linker script or manually. You may also need to link an oslib that specifies the stdin/stdout/stderr files. Please see the picolibc GitHub repository for more information.")
+
+			self.can_link = False
+
+			return
+
+		elif self.llvmtarget.is_wasi and self.llvmtarget.vendor == "wasix":
 			return
 
 		else: raise ValueError("This target is not supported.")
@@ -84,6 +98,21 @@ class UnixTarget(TargetMeta):
 		cxxonlyflags = []
 		c_and_ldflags = []
 
+
+		cflags_init = shlex.split(config.get('cflags'))
+		if cflags_init is None:
+			self.cflags += ['-Os']
+		else:
+			self.cflags += cflags_init
+
+
+		ldflags_init = shlex.split(config.get('ldflags'))
+		if cflags_init is not None:
+			self.ldflags += ldflags_init
+
+		# no-default-config prevents some distro settings that could be incompatible
+		self.cflags += ['--no-default-config']
+
 		fpu = config.get('fpu')
 		if fpu is not None:
 			self.cflags += [f'-mfpu={fpu}']
@@ -91,6 +120,15 @@ class UnixTarget(TargetMeta):
 		abi = config.get("abi")
 		if abi is not None:
 			self.cflags += [f'-mabi={abi}']
+
+		cpu = config.get("cpu")
+		if cpu is not None:
+			self.cflags += [f'-mcpu={cpu}']
+
+		if self.llvmtarget.is_wasi:
+			self.cflags += ['-ftls-model=local-exec', '-D_WASI_EMULATED_MMAN', '-D_WASI_EMULATED_PROCESS_CLOCKS', '-DNDEBUG', '-mbulk-memory', '-fno-trapping-math']
+			cxxonlyflags += ['-fno-exceptions']
+			self.ldflags += ['-lwasi-emulated-mman', '-lwasi-emulated-process-clocks', '-lwasi-emulated-getpid']
 
 		target_features = config.get("target_features")
 		if target_features is not None:
@@ -115,7 +153,7 @@ class UnixTarget(TargetMeta):
 			"--no-default-config",  # Disable distro defaults
 			f"--target={self.llvmtarget.triplestr}",
 			"--sysroot={sysroot}",
-			"-resource-dir {sysroot}/lib/clang" # THIS IS A CFLAGS TOO!
+			"-resource-dir", "{sysroot}/lib/clang" # THIS IS A CFLAGS TOO!
 		]
 
 		self.ldflags += [
@@ -136,7 +174,19 @@ class UnixTarget(TargetMeta):
 
 		self.cxxflags = self.cflags + cxxonlyflags
 
-		self.cmake_system_name = "Linux" if self.llvmtarget.is_linux else ("Generic" if self.llvmtarget.is_baremetal else "Windows")
+		# Wasi = linux works best - https://github.com/WebAssembly/wasi-sdk/issues/181
+		self.cmake_system_name = "WASI" if self.llvmtarget.is_wasi else ("Linux" if self.llvmtarget.is_linux else ("Generic" if self.llvmtarget.is_baremetal else "Windows"))
+
+		if self.llvmtarget.is_wasi:
+			wasi_platform = self.sysroot / "etc/mkcross/cmake/Platform/WASI.cmake"
+			wasi_platform.parents[0].mkdir(parents=True, exist_ok=True)
+			with open(wasi_platform, 'w') as f:
+				# Unix is mkcross only, not in wasi-sdk and such, but it makes programs happy
+				f.write("""
+set(WASI 1)
+set(UNIX 1)
+""")
+
 
 	def make(self):
 		pkg = ClangResourceHeaders(self)
@@ -176,6 +226,14 @@ class UnixTarget(TargetMeta):
 			pkg.build()
 			pkg.install()
 
+		elif self.llvmtarget.is_wasm:
+			pkg = WasixLibc(self)
+			pkg.download()
+			pkg.prepare()
+			pkg.configure()
+			pkg.build()
+			pkg.install()
+
 		elif self.llvmtarget.is_baremetal:
 			ver = self.config.get("picolibc_ver") or PicoLibc.get_latest_version()
 			pkg = PicoLibc(self, ver)
@@ -204,12 +262,13 @@ class UnixTarget(TargetMeta):
 			pkg.install()
 
 
-		pkg = Libunwind(self, ver)
-		pkg.download()
-		pkg.prepare()
-		pkg.configure()
-		pkg.build()
-		pkg.install()
+		if not self.llvmtarget.is_wasm:
+			pkg = Libunwind(self, ver)
+			pkg.download()
+			pkg.prepare()
+			pkg.configure()
+			pkg.build()
+			pkg.install()
 
 		pkg = LibCXX(self, ver)
 		pkg.download()

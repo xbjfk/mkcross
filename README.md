@@ -27,9 +27,11 @@ run `mkcross --target=<triple>`
  - No need to create a separate sysroot for every build machine, build is responsible for their own clang (ie the same sysroot can be downloaded for arm and x86 build machines).
 
 # Notice
- - Baremetal support is currently in beta and might not even work!
+ - wasix support is currently in beta and might not even work!
+ - baremetal c++ is WIP and may not work on every architecture.
 
 # What's next?
+ - [x] WasiX support (**EXPERIMENTAL**)
  - [ ] Windows target support
    - [x] MingW
    - [ ] Proprietary (Visual Studio)
@@ -44,7 +46,7 @@ run `mkcross --target=<triple>`
    - [x] musl
    - [ ] uclibc
    - [ ] glibc (cannot yet be built with clang)
- - [ ] Bare metal
+ - [X] Bare metal (**EXPERIMENTAL**)
  - [ ] Common libraries - zlib, curl, openssl
  - [ ] More architectures in compiler RT
    - [ ] Upstream to LLVM
@@ -61,4 +63,9 @@ run `mkcross --target=<triple>`
 
 # Troubleshooting tips
 ## I get errors when compiling c++ statically!
-You need to link with libc++abi: `-lc++abi`
+You need to link with more c++ libs: `-lc++abi` and potentially `-lunwind`
+## relocation R_RISCV_HI20 out of range: 524288 is not in [-524288, 524287];
+You cant compile with LTO. I need to investigate this further.
+If you care about the details, see [this blog post](https://www.sifive.com/blog/all-aboard-part-4-risc-v-code-models#what-does--mcmodelmedlow-mean)
+## strtoll_l strtoull_l strtof_l strtod_l strtold_l etc. are undefined on picolibc:
+Add -D_GNU_SOURCE to your defines.

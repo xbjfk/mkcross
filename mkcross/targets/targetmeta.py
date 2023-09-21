@@ -15,6 +15,8 @@ class TargetMeta(ABC):
 	supported_os: List[str]
 	target_options: Dict[str, str]
 
+	can_link: bool
+
 	cflags: List[str]
 	cxxflags: List[str]
 	ldflags: List[str]
@@ -25,6 +27,8 @@ class TargetMeta(ABC):
 	def __init__(self, triple_nonnormalized, llvmtarget, config=[]):
 		self.triple_nonnormalized = triple_nonnormalized
 		self.llvmtarget = llvmtarget
+
+		self.can_link = True
 
 		self.cflags = []
 		self.cxxflags = []
@@ -49,7 +53,6 @@ class TargetMeta(ABC):
 		
 		for file, args in [("clang", self.cflags + self.ldflags), ("clang++", self.cxxflags + self.ldflags), ("clang-cpp", self.cflags + self.cxxflags) ]:
 			with open(str(clangdir / file) + ".cfg", "w") as f:
-				args = set(args)
 				root_from_clang = os.path.relpath(self.sysroot, start = clangdir)
 				f.write(join_map_flags(args, "<CFGDIR>/" + str(root_from_clang), sep='\n'))
 				f.write('\n')
@@ -58,39 +61,51 @@ class TargetMeta(ABC):
 
 		root_from_config = os.path.relpath(self.sysroot, start = self.mkcross_config_dir)
 
-		cross_file_meson = self.mkcross_config_dir / "meson-cross.ini"
+		self.cross_file_meson = self.mkcross_config_dir / "meson-cross.ini"
 
 		# TODO: use XDG_DATA_DIRS to specify without full path
-		with open(cross_file_meson, "w") as f:
+		# TODO: can we use some meson import for this?
+		# TODO: make CPU familes work for "ppc64le" and the likes
+		# https://mesonbuild.com/Reference-tables.html#cpu-families
+		# TODO: check if cpu = cpu_family is fine (use github code search for uses of .cpu())
+		# TODO: use shlex and escape each arg
+		# TODO: CMAKE support (specify binary and cmake toolchain file)
+		# TODO: static and non static variant
+		# TODO: pkgconfig sysroot and pkgconfig libdir
+		with open(self.cross_file_meson, "w") as f:
 			f.write(f"""[constants]
-mkcross_sysroot = '../../'
+mkcross_sysroot = '{self.sysroot.resolve()}'
 mkcross_triple = '{self.llvmtarget.triplestr}'
 
 [host_machine]
 system = '{self.llvmtarget.os}'
+cpu_family = '{self.llvmtarget.arch}'
+cpu = '{self.llvmtarget.arch}'
+endian = '{"little" if self.llvmtarget.is_little_endian else "big"}'
 
 [properties]
 sys_root = mkcross_sysroot
 
 [binaries]
-c = {which("clang")}
-objc = {which("clang")}
-cpp = {which("clang++")}
-objcpp = {which("clang++")}
+c = '{which("clang")}'
+objc = '{which("clang")}'
+cpp = '{which("clang++")}'
+objcpp = '{which("clang++")}'
 c_ld = 'lld'
 cpp_ld = 'lld'
-ar = {which("llvm-ar")}
-nm = {which("llvm-nm")}
-ranlib = {which("llvm-ranlib")}
-strip = {which("llvm-strip")}
-windres = {which("llvm-rc")}
+ar = '{which("llvm-ar")}'
+nm = '{which("llvm-nm")}'
+ranlib = '{which("llvm-ranlib")}'
+strip = '{which("llvm-strip")}'
+windres = '{which("llvm-rc")}'
+pkg-config = ['{which("pkg-config")}', '--static']
 
 [built-in options]
-pkg_config_path = mkcross_sysroot + '/usr/lib/pkgconfig'
-c_args = ['{join_map_flags(self.cflags, "../../")}]
-cpp_args = ['{join_map_flags(self.cxxflags, "../../")}]
-c_link_args = ['{join_map_flags(self.ldflags, "../../")}]
-cpp_link_args = ['{join_map_flags(self.ldflags, "../../")}]
+pkg_config_path = mkcross_sysroot + '/lib/pkgconfig'
+c_args = ['{join_map_flags(self.cflags, "' + mkcross_sysroot + '", "', '")}']
+cpp_args = ['{join_map_flags(self.cxxflags, "' + mkcross_sysroot + '", "', '")}']
+c_link_args = ['{join_map_flags(self.ldflags, "' + mkcross_sysroot + '", "', '")}', '-static']
+cpp_link_args = ['{join_map_flags(self.ldflags, "' + mkcross_sysroot + '", "', '")}', '-static']
 """)
 			if self.llvmtarget.is_mingw:
 				f.write("default_library = 'static'\n")
@@ -110,6 +125,8 @@ set(mkcross_TRIPLE {self.llvmtarget.triplestr})
 
 set(CMAKE_SYSROOT ${{mkcross_SYSROOT}})
 
+list(APPEND CMAKE_MODULE_PATH "${{mkcross_SYSROOT}}/cmake")
+
 set(CMAKE_C_COMPILER {which("clang")})
 set(CMAKE_CXX_COMPILER {which("clang++")})
 set(CMAKE_AR {which("llvm-ar")})
@@ -127,6 +144,8 @@ set(CMAKE_C_COMPILER_TARGET ${{mkcross_TRIPLE}})
 set(CMAKE_CXX_COMPILER_TARGET ${{mkcross_TRIPLE}})
 set(CMAKE_ASM_COMPILER_TARGET ${{mkcross_TRIPLE}})
 
+set(CMAKE_TRY_COMPILE_TARGET_TYPE {"EXECUTABLE" if self.can_link else "STATIC_LIBRARY"})
+
 
 set(common_ldflags "{join_map_flags(self.ldflags, "${mkcross_SYSROOT}")}")
 
@@ -140,6 +159,13 @@ set(CMAKE_EXE_LINKER_FLAGS_INIT ${{common_ldflags}})
 set(CMAKE_MODULE_LINKER_FLAGS_INIT ${{common_ldflags}})
 set(CMAKE_SHARED_LINKER_FLAGS_INIT ${{common_ldflags}})
 #CMAKE_STATIC_LINKER_FLAGS is passed to ar, not clang
+
+# Don't look in the sysroot for executables to run during the build
+set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
+# Only look in the sysroot (not in the host paths) for the rest
+set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
+set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
+set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)
 """)
 			f.flush()
 

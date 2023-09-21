@@ -2,16 +2,17 @@ import sys
 import llvmtarget
 from mkcross.targets import UnixTarget
 
+import re
+
 args = sys.argv[1:]
 
 #raise ValueError("Also test static libunwind etc, and try set it so auto lc++abi")
 
 
 def target_for_cli(arg: str):
-	triple, *options = arg.split(',')
-	options = [option.split('=') for option in options]
-	if any(len(option) != 2 for option in options):
-		raise ValueError("Invalid option provided! Options to targets must be in the form k1=v1,k2=v2")
+	# Split at , except for \,
+	triple, *options = re.split(r'(?<!\\),', arg)
+	options = [map(lambda x: x.replace(r'\,', ','), option.split('=', 1)) for option in options]
 
 	options = dict(options)
 
