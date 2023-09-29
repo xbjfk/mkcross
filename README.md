@@ -9,6 +9,16 @@ mkcross is a super fast python toolkit to make linux and windows (mingw) toolcha
 
 <!-- TODO: full blown comparision chart -->
 
+## Features
+ - Extremely fast.
+ - Portable sysroots - you can `mv` the sysroot anywhere you want and it will still work.
+ - Supports Windows, Linux, Baremetal, and - experimentally - WasiX.
+ - Supports every architecture LLVM supports.
+ - No need to compile a whole compiler for your target
+   - Much faster to compile just compiler-rt, libc, libc++ than binutils, gcc and libc.
+   - No need to fiddle with binutils' and gcc's autoconf
+ - Sysroots can be used on any machine with clang and LLVM tools installed.
+
 # How to use
 ## Clang
 Simply run clang like this:
@@ -24,14 +34,8 @@ run `mkcross --target=<triple>`
 # How?
  - LLVM is a cross compiler by nature. If you feed it the correct libraries, it will happily output what you want. This program will download and/or compile the needed libraries. There is no need to download/compile a whole compiler.
 
-# Why?
- - No need to compile a gcc for your target
-   - Much faster to compile just compiler-rt, libc, libc++ than binutils, gcc and libc.
-   - No need to fiddle with binutils' and gcc's autoconf
- - No need to create a separate sysroot for every build machine, build is responsible for their own clang (ie the same sysroot can be downloaded for arm and x86 build machines).
-
 # Notice
- - wasix support is currently in beta and might not even work!
+ - wasix support is currently highly experimental
  - baremetal c++ is WIP and may not work on every architecture.
 
 # What's next?
